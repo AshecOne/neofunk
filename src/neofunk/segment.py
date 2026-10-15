@@ -27,7 +27,9 @@ class SegmentConfig:
     split_semitones: float = 0.7  # pergeseran pitch untuk mulai not baru
     min_change_s: float = 0.04  # pergeseran harus bertahan selama ini
     gap_fill_s: float = 0.05  # celah unvoiced <= ini ditambal kalau pitch kiri/kanan mirip
-    merge_gap_s: float = 0.03  # not bersebelahan dgn pitch sama & celah <= ini digabung
+    # not bersebelahan dgn pitch sama & celah <= ini digabung. Default 0: hanya potongan yang
+    # menempel (hasil jitter pitch). Celah sungguhan sudah diputuskan oleh _fill_gaps.
+    merge_gap_s: float = 0.0
     smooth_s: float = 0.05  # lebar median filter
     min_confidence: float = 0.1  # frame dengan confidence pitch di bawah ini = unvoiced
     silence_db: float = -45.0  # frame di bawah (max_rms + silence_db) dianggap hening
@@ -55,12 +57,26 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1)))
 
 
-def _fill_gaps(midi: np.ndarray, max_gap: int, max_jump: float = 1.0) -> np.ndarray:
+def _fill_gaps(
+    midi: np.ndarray,
+    max_gap: int,
+    max_jump: float = 1.0,
+    db: np.ndarray | None = None,
+    dip_db: float = 10.0,
+) -> np.ndarray:
+    """Tambal celah unvoiced pendek. Celah dengan penurunan energi > `dip_db` tidak
+    ditambal: itu jeda sungguhan antar not (mis. "da . da"), bukan pitch tracker yang
+    sesaat kehilangan nada."""
     midi = midi.copy()
     voiced = np.isfinite(midi)
     for s, e in _runs(~voiced):
         if s == 0 or e == len(midi) or e - s > max_gap:
             continue
+        if db is not None:
+            w = max_gap  # bandingkan dengan level not di kiri & kanan (bukan frame tepi yang sedang fade)
+            around = min(np.max(db[max(0, s - w):s]), np.max(db[e:e + w]))
+            if np.min(db[s:e]) < around - dip_db:
+                continue
         left, right = midi[s - 1], midi[e]
         if abs(left - right) <= max_jump:
             midi[s:e] = np.linspace(left, right, e - s + 2)[1:-1]
@@ -108,7 +124,7 @@ def segment_notes(
     tuning = estimate_tuning(midi) if cfg.correct_tuning else 0.0
     midi = midi - tuning
 
-    midi = _fill_gaps(midi, max(1, int(round(cfg.gap_fill_s / hop))))
+    midi = _fill_gaps(midi, max(1, int(round(cfg.gap_fill_s / hop))), db=db)
 
     k = max(1, int(round(cfg.smooth_s / hop)))
     k += 1 - k % 2  # harus ganjil
@@ -167,7 +183,7 @@ def segment_notes(
             merged
             and not f
             and n.pitch == merged[-1].pitch
-            and n.start - merged[-1].end <= cfg.merge_gap_s + 1e-9
+            and n.start - merged[-1].end <= cfg.merge_gap_s + hop / 2
         ):
             merged[-1].end = n.end
         else:

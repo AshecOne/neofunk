@@ -34,3 +34,16 @@ def synth_hum(melody, bpm=100.0, sr=16000, detune_cents=-30.0, vibrato_cents=25.
     y = y + noise * rng.standard_normal(len(y))
     return (0.8 * y / np.max(np.abs(y))).astype(np.float32), sr
 
+
+
+def melody_to_notes(melody, bpm=100.0, lead_s=0.3, gap_s=0.06):
+    """Ground-truth Note untuk audio dari `synth_hum` (parameter harus sama)."""
+    from neofunk.notes import Note
+
+    beat = 60.0 / bpm
+    t, notes = lead_s, []
+    for pitch, beats in melody:
+        dur = beats * beat
+        notes.append(Note(t, t + dur - gap_s, pitch))
+        t += dur
+    return notes

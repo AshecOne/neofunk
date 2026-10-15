@@ -23,7 +23,30 @@ gpu = ["torch>=2.1", "torchcrepe>=0.0.22"]
 score = ["music21>=9.1"]
 # Spotify Basic Pitch sebagai backend alternatif
 basicpitch = ["basic-pitch>=0.4"]
-dev = ["pytest>=7"]
+# ROSVOT (model note-level khusus suara nyanyi, butuh GPU NVIDIA). Lalu: neofunk setup rosvot
+rosvot = [
+    "torch>=2.1",
+    "gdown>=5",
+    "pyworld>=0.3",
+    "setuptools<81",  # pyworld masih import pkg_resources
+    "pyloudnorm",
+    "scikit-image",
+    "textgrid",
+    "webrtcvad-wheels",
+    "mir_eval>=0.7",
+    "matplotlib",
+    "pyyaml",
+    "tqdm",
+    "six",
+]
+# Download dataset (HumTrans dari Hugging Face)
+data = ["huggingface_hub>=0.20"]
+# Benchmark akurasi
+eval = ["mir_eval>=0.7"]
+# rekam dari mikrofon
+record = ["sounddevice>=0.4"]
+all = ["neofunk[gpu,score,rosvot,data,eval,record]"]
+dev = ["pytest>=7", "mir_eval>=0.7"]
 
 [project.scripts]
 neofunk = "neofunk.cli:main"

@@ -32,7 +32,7 @@ bisa jalan di laptop atau GPU kelas menengah.
 | **TorchFCPE** | pitch tracker | sangat cepat, ada output MIDI | MIDI-nya hasil kuantisasi non-neural dari f0 |
 | **Spotify Basic Pitch** | audio→MIDI (polifonik) | gampang dipakai, ada pitch bend, sudah di neofunk (`--backend basic-pitch`) | untuk humming kadang "choppy" |
 | **SOME** (openvpi) | MIDI extractor khusus nyanyi | cepat (~300x real-time di 3080Ti), dibuat untuk label DiffSinger | status beta |
-| **ROSVOT** (ACL 2024) | SVT note-level | SOTA, robust untuk input bersih maupun bising | lebih berat, kodenya untuk riset |
+| **ROSVOT** (ACL 2024) | SVT note-level | SOTA, robust untuk input bersih maupun bising, sudah di neofunk (`--backend rosvot`) | ±12 M param + RMVPE, butuh CUDA, checkpoint dilatih data Mandarin (M4Singer) |
 | **VocalParse** (2026, preprint) | SVT berbasis Large Audio LLM | menyatukan lirik + not | masih baru, jauh lebih berat |
 
 **Kesimpulan:** untuk kebutuhanmu (melodi mulut → MIDI → bikin lagu) **tidak perlu
@@ -54,9 +54,9 @@ Metrik standar: `mir_eval.transcription` (precision/recall/F1 untuk onset ±50 m
 
 ## Rencana teknis berikutnya
 
-1. Tambah backend **RMVPE** (pitch) dan **SOME** (note-level) sebagai opsi `--backend`.
-2. Script evaluasi `neofunk eval` memakai HumTrans subset + `mir_eval`, supaya tiap
-   perubahan heuristik/model terukur.
+1. ~~ROSVOT sebagai backend~~ (selesai) · SOME sebagai backend tambahan.
+2. ~~`neofunk eval` + download HumTrans~~ (selesai, lihat [DATASETS.md](DATASETS.md)) →
+   jalankan benchmark sungguhan di GPU.
 3. Fine-tune model note-level kecil (CNN/Conformer, < 20 M parameter) di HumTrans dan
    rekamanmu. Training seperti ini muat di RTX 4060 (pakai mixed precision, batch kecil).
 4. Tahap "jadi lagu": dari MIDI melodi → deteksi progresi chord yang cocok, bassline,

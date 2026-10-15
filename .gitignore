@@ -14,3 +14,6 @@ recordings/
 *.mid
 *.musicxml
 !examples/**/*.wav
+third_party/
+data/
+*.csv

@@ -15,7 +15,7 @@ from neofunk.segment import SegmentConfig, segment_notes
 
 @dataclass
 class TranscribeConfig:
-    backend: str = "pyin"  # pyin | crepe | basic-pitch
+    backend: str = "pyin"  # pyin | crepe | basic-pitch | rosvot
     sr: int = 16000
     fmin: float = 65.0  # ~C2, suara cowok rendah
     fmax: float = 1050.0  # ~C6, siulan / falsetto tinggi
@@ -26,6 +26,7 @@ class TranscribeConfig:
     transpose: int = 0  # semitone, mis. -12 untuk turun satu oktaf
     beats_per_bar: int = 4
     segment: SegmentConfig = field(default_factory=SegmentConfig)
+    rosvot_threshold: float = 0.85  # ambang batas not ROSVOT (lebih kecil = lebih banyak not)
 
 
 def _basic_pitch_notes(path: str) -> list[Note]:
@@ -39,8 +40,12 @@ def _basic_pitch_notes(path: str) -> list[Note]:
         Note(start=float(s), end=float(e), pitch=int(p), velocity=int(np.clip(a * 127, 1, 127)))
         for s, e, p, a, _bends in events
     ]
-    # Suara mulut itu monofonik: kalau ada not tumpang tindih, ambil yang paling keras.
-    notes.sort(key=lambda n: n.start)
+    return _to_monophonic(notes)
+
+
+def _to_monophonic(notes: list[Note]) -> list[Note]:
+    """Suara mulut itu monofonik: kalau ada not tumpang tindih, ambil yang paling keras."""
+    notes = sorted(notes, key=lambda n: n.start)
     mono: list[Note] = []
     for n in notes:
         if mono and n.start < mono[-1].end:
@@ -69,6 +74,7 @@ def transcribe(
         if sr is None:
             raise ValueError("Kalau source berupa array, sr wajib diisi")
         y = np.asarray(source, dtype=np.float32)
+        raw, raw_sr = y, sr
         if sr != cfg.sr:
             import librosa
 
@@ -81,6 +87,15 @@ def transcribe(
         if not isinstance(source, str):
             raise ValueError("Backend basic-pitch butuh path file audio")
         notes = _basic_pitch_notes(source)
+    elif cfg.backend == "rosvot":
+        from neofunk.rosvot import transcribe_rosvot
+
+        # ROSVOT bekerja di 24 kHz: kirim audio asli, bukan versi 16 kHz
+        if isinstance(source, str):
+            rv = transcribe_rosvot(source, threshold=cfg.rosvot_threshold)
+        else:
+            rv = transcribe_rosvot(raw, raw_sr, threshold=cfg.rosvot_threshold)
+        notes = _to_monophonic(rv)
     else:
         import librosa
 

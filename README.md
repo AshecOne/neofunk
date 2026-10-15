@@ -24,10 +24,17 @@ pip install -e ".[score,dev]"      # inti + ekspor partitur
 
 # opsional: backend neural pakai GPU (pasang PyTorch CUDA dulu sesuai pytorch.org)
 pip install -e ".[gpu]"
+# opsional: ROSVOT (model khusus suara nyanyi, butuh GPU NVIDIA) — lihat bagian ROSVOT
+pip install -e ".[rosvot]" && neofunk setup rosvot
 # opsional: Spotify Basic Pitch
 pip install -e ".[basicpitch]"
+# opsional: download dataset & benchmark
+pip install -e ".[data,eval]"
 # opsional: rekam langsung dari mic
-pip install sounddevice
+pip install -e ".[record]"
+
+# atau semuanya sekaligus
+pip install -e ".[all,dev]"
 ```
 
 ## Pemakaian cepat
@@ -79,7 +86,7 @@ write_midi(tr, "ide1.mid", program=29)  # 29 = overdrive guitar
 
 | Opsi | Fungsi |
 |---|---|
-| `--backend pyin\|crepe\|basic-pitch` | pYIN (CPU, default), CREPE (GPU, paling tahan noise), Basic Pitch (Spotify) |
+| `--backend pyin\|crepe\|basic-pitch\|rosvot` | pYIN (CPU, default), CREPE (GPU, tahan noise), Basic Pitch (Spotify), ROSVOT (GPU, model note-level khusus nyanyi) |
 | `--bpm 100` | Tempo. Kalau dikosongkan akan diestimasi, tapi **lebih akurat kalau kamu rekam pakai metronom** |
 | `--grid 16` | Kuantisasi ke not 1/16 (`8` = 1/8, `32` = 1/32, `0` = mati) |
 | `--key auto` / `--key "F#m"` / `--key none` | Deteksi atau tetapkan key |
@@ -88,6 +95,65 @@ write_midi(tr, "ide1.mid", program=29)  # 29 = overdrive guitar
 | `--min-note 0.07` | Not lebih pendek dari ini dibuang (naikkan kalau terlalu banyak not kecil) |
 | `--no-onset-split` | Jangan pecah not berdasarkan serangan konsonan |
 | `--program 29` | Instrumen General MIDI di file MIDI |
+
+## ROSVOT (model note-level, ACL 2024)
+
+[ROSVOT](https://github.com/RickyL-2000/ROSVOT) adalah model yang langsung memprediksi
+**batas not + pitch** dari suara nyanyi. Jadi bagian yang paling susah (memotong suara jadi
+not) dikerjakan model terlatih, bukan aturan buatan. Ukurannya kecil (±12 M parameter
+untuk model not + ±10 M untuk model batas kata, plus RMVPE untuk pitch), jadi ringan di RTX 4060.
+
+```bash
+pip install -e ".[rosvot]"
+neofunk setup rosvot              # clone repo ROSVOT ke third_party/ + download checkpoint
+neofunk transcribe ide1.wav --backend rosvot --bpm 100
+neofunk transcribe ide1.wav --backend rosvot --rosvot-thr 0.7   # lebih banyak not kecil
+```
+
+Catatan:
+- Inference ROSVOT **butuh GPU NVIDIA (CUDA)**; tidak bisa jalan di CPU.
+- Checkpoint resminya dilatih dengan dataset nyanyi Mandarin (M4Singer). Penulisnya bilang
+  modelnya tetap bagus untuk bahasa lain, tapi untuk humming/"solo gitar" mulut, **cek dengan
+  benchmark** (lihat di bawah) dan bandingkan dengan `crepe`.
+- Kalau `gdown` gagal download dari Google Drive, download manual
+  [checkpoints.zip](https://drive.google.com/file/d/1JNtNT37KiLq9uFQqHk7JFs-3trxd3bRh/view)
+  lalu `neofunk setup rosvot --ckpt-zip ~/Downloads/checkpoints.zip`.
+- Kalau mau ROSVOT di conda env terpisah: set `NEOFUNK_ROSVOT_PYTHON=/path/ke/python`.
+
+## Benchmark: seberapa akurat untuk suaramu?
+
+`neofunk eval` membandingkan hasil transkripsi dengan "kunci jawaban" (MIDI yang benar)
+memakai [`mir_eval`](https://github.com/mir-evaluation/mir_eval), metrik standar riset.
+
+```bash
+# A. rekamanmu sendiri: taruh pasangan file dengan nama sama di satu folder
+#    my_eval/lagu1.wav + my_eval/lagu1.mid, my_eval/lagu2.wav + my_eval/lagu2.mid, ...
+neofunk eval --data my_eval --backends pyin,crepe,rosvot --csv hasil/eval_saya.csv
+
+# B. dataset publik HumTrans (lihat docs/DATASETS.md)
+neofunk eval --humtrans data/humtrans --split TEST --limit 100 \
+    --backends pyin,crepe,rosvot --octave-invariant
+```
+
+Contoh output:
+
+```
+backend       note F1  F1+offset  onset F1  pitch acc  file    waktu
+--------------------------------------------------------------------
+pyin            ...%       ...%      ...%       ...%    100    ...s
+crepe           ...%       ...%      ...%       ...%    100    ...s
+rosvot          ...%       ...%      ...%       ...%    100    ...s
+```
+
+- **note F1**: metrik utama. Not dihitung benar kalau awalnya meleset ≤ 50 ms dan nadanya ≤ ½ semitone.
+- **F1+offset**: sama, tapi akhir not juga harus pas (lebih ketat).
+- **onset F1**: hanya cek "pemotongan" not (nada diabaikan).
+- **pitch acc**: dari not yang awalnya cocok, berapa persen nadanya benar.
+- `--octave-invariant`: abaikan salah oktaf (wajar kalau kamu humming 1 oktaf di bawah lagu aslinya).
+
+Cara gampang bikin kunci jawaban untuk rekamanmu: jalankan `neofunk transcribe` → buka
+`.raw.mid` di DAW/MuseScore → betulkan not yang salah → simpan sebagai `nama.mid`
+di sebelah `nama.wav`.
 
 ## Tips merekam supaya hasilnya bagus
 
@@ -108,10 +174,14 @@ src/neofunk/
   music.py     tempo, deteksi key, snap tangga nada, kuantisasi
   export.py    MIDI, MusicXML, JSON, preview WAV
   pipeline.py  merangkai semuanya + backend Basic Pitch
+  rosvot.py    setup & wrapper ROSVOT
+  datasets.py  download HumTrans + loader pasangan (audio, MIDI)
+  evaluate.py  benchmark mir_eval
   cli.py       command line `neofunk`
   synth.py     humming sintetis untuk tes
 tests/         pytest (pakai audio sintetis, tanpa file rekaman)
 docs/RESEARCH.md  referensi, perbandingan model, dan roadmap
+docs/DATASETS.md  dataset untuk benchmark & fine-tuning
 ```
 
 Jalankan tes: `pytest`
@@ -121,8 +191,10 @@ Jalankan tes: `pytest`
 Lihat [docs/RESEARCH.md](docs/RESEARCH.md) untuk detail dan referensinya.
 
 - [x] **Fase 1**: pipeline tanpa training (pitch tracker pretrained + segmentasi heuristik)
-- [ ] **Fase 2**: integrasi model note-level khusus suara (SOME / ROSVOT), plus RMVPE sebagai pitch tracker
-- [ ] **Fase 3**: evaluasi pakai dataset humming (HumTrans) dan rekamanmu sendiri (`mir_eval`)
+- [x] **Fase 2**: integrasi model note-level khusus suara (ROSVOT, sudah termasuk RMVPE)
+- [x] **Fase 3**: tooling evaluasi (`neofunk eval`, `mir_eval`) + download HumTrans
+- [ ] **Fase 3b**: jalankan benchmark di HumTrans & rekamanmu, pilih backend default terbaik
+- [ ] SOME sebagai backend tambahan
 - [ ] **Fase 4**: fine-tune model kecil dengan suaramu sendiri (muat di 16 GB VRAM)
 - [ ] **Fase 5**: dari melodi ke lagu: auto-chord, bassline, drum (MIDI → AI/DAW)
 - [ ] UI sederhana (Gradio): rekam → lihat piano roll → edit → download
